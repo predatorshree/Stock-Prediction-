@@ -9,16 +9,16 @@ from keras.models import load_model
 import streamlit as st
 
 
-start = '2020-01-01' #yyyy-mm-dd
-end = '2024-02-16'   #yyyy-mm-dd
+start = '2010-01-01' #yyyy-mm-dd
+end = '2024-02-27'   #yyyy-mm-dd
 
 st.title('Stock Trend prediction')
-user_input = st.text_input('Enter Stock Ticker','IRFC.NS')
+user_input = st.text_input('Enter Stock Ticker','RELIANCE.NS')
 df = yf.download(user_input, start=start, end=end)
 
 
 #decribing data
-st.subheader('Data from 2020-2024')
+st.subheader('Data from 2010-2024')
 st.write(df.describe()) 
 highest_price = df['Close'].max()
 lowest_price = df['Close'].min()
@@ -92,7 +92,7 @@ Data_training_array = scaler.fit_transform(Data_training)
 
 
 #load model
-model = load_model('IRFC_keras_model.h5')
+model = load_model('RELIANCE.NS10.NS_keras_model.h5')
 
 
 #testing part
@@ -129,32 +129,28 @@ y_test = y_test * scale_factor
 
 
 st.subheader('Predictions vs Original')
-
 # Add headline with start date and end date
 st.write(f"Start Date: {start}, End Date: {end}")
 
-
+# Fetch historical stock data for the specified period
 stock_data = yf.download(user_input, start=start, end=end)
 
-
+# Plot original and predicted prices
 fig2 = plt.figure(figsize=(12,6))
-
-# Plotting original and predicted price
 plt.plot(y_test, 'b', label='Original price')
-plt.plot(y_predicated, 'r', label='Predicated price')
+plt.plot(y_predicated, 'r', label='Predicted price')
 
-# Calculating the direction of projection
+# Calculate the direction of projection
 last_original_price = stock_data.iloc[-1]['Close']
 last_predicted_price = y_predicated[-1]
 direction = "Upward" if last_predicted_price > last_original_price else "Downward"
 
-# Adding text annotation for the direction of projection
+# Add text annotation for the direction of projection
 plt.text(len(y_test) - 1, last_predicted_price, f'{direction} projection', ha='right', va='center', color='green' if direction == 'Upward' else 'red')
 
 plt.xlabel('Time')
 plt.ylabel('Price')
 plt.legend()
-
 st.pyplot(fig2)
 
 # Display last predicted value and current price
