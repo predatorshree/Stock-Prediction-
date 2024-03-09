@@ -1,0 +1,528 @@
+import numpy as np
+import pandas as pd 
+import matplotlib.pyplot as plt
+import pandas_datareader as pt
+import yfinance as yf
+from keras.models import load_model
+import streamlit as st
+from ta.momentum import RSIIndicator
+from io import BytesIO
+import tensorflow as tf
+import streamlit as st
+import pandas_datareader as pdr
+from sklearn.preprocessing import MinMaxScaler
+from keras.layers import Dense, Dropout, LSTM, Input
+from keras.models import Sequential
+import math
+
+
+
+
+def train_model(stock_symbol, start_date, end_date, file_name):
+    try:
+        df = yf.download(stock_symbol, start=start_date, end=end_date)
+        
+        if df.empty:
+            raise ValueError("Empty dataset. Please check your data source.")
+        
+        df = df.reset_index()
+        df = df.drop(['Date','Adj Close'], axis=1)
+
+        scaler = MinMaxScaler(feature_range=(0,1))
+        Data_training = pd.DataFrame(df['Close'][0:int(len(df)*0.70)])
+        Data_testing = pd.DataFrame(df['Close'][int(len(df)*0.70):])
+
+        if Data_training.empty or Data_testing.empty:
+            raise ValueError("Empty training or testing data. Please check your data.")
+
+        scaler.fit(Data_training)
+        Data_training = scaler.transform(Data_training)
+        Data_testing = scaler.transform(Data_testing)
+
+        # Create sequences for training data
+        X_train, y_train = create_sequences(Data_training)
+
+        # Create sequences for testing data
+        X_test, y_test = create_sequences(Data_testing)
+
+        # Define and compile the model
+        input_shape = (X_train.shape[1], 1)
+        model = Sequential()
+        model.add(Input(shape=input_shape))  # Use Input(shape) as the first layer
+        model.add(LSTM(units=50, activation='relu', return_sequences=True))
+        model.add(Dropout(0.2))
+        model.add(LSTM(units=60, activation='relu', return_sequences=True))
+        model.add(Dropout(0.3))
+        model.add(LSTM(units=80, activation='relu', return_sequences=True))
+        model.add(Dropout(0.4))
+        model.add(LSTM(units=120, activation='relu'))
+        model.add(Dropout(0.5))
+        model.add(Dense(units=1))
+
+        model.compile(optimizer='adam', loss='mean_squared_error')
+
+        # Train the model
+        model.fit(X_train, y_train, epochs=10, batch_size=32)
+
+        # Save the model
+        model.save(file_name + '.keras')
+
+
+        # Predictions
+        predictions = model.predict(X_test)
+        predictions = scaler.inverse_transform(predictions)
+
+        # Calculate MAPE
+        mape = np.mean(np.abs((y_test - predictions) / y_test)) * 100
+
+        st.success("Model trained successfully!")
+        st.write("Mean Absolute Percentage Error (MAPE) on Testing Data:", mape, "%")
+
+        return model
+
+    except ValueError as e:
+        st.error(str(e))
+        st.error("Model creation failed.")
+
+def create_sequences(data):
+    X, y = [], []
+    for i in range(100, len(data)):
+        X.append(data[i-100:i])
+        y.append(data[i, 0])
+    return np.array(X), np.array(y)
+
+def main():
+    st.title("Stock Model Creation ")
+    stock_symbol = st.text_input("Enter Stock Symbol (e.g., RELIANCE.NS):")
+    start_date = st.date_input("Enter Start Date:")
+    end_date = st.date_input("Enter End Date:")
+    file_name = st.text_input("Enter the name for the model file:")
+    if st.button("Train Model"):
+        train_model(stock_symbol, str(start_date), str(end_date), file_name)
+
+if __name__ == "__main__":
+    main()
+
+
+# Function to calculate RSI
+def calculate_rsi(data, window=14):
+    delta = data.diff(1)
+    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+# Function to generate buy/sell signals based on RSI
+def generate_signals(data):
+    signals = []
+    prev_signal = None
+    for rsi_value in data:
+        if rsi_value <= 30:
+            signal = 'Buy'
+        elif rsi_value >= 70:
+            signal = 'Sell'
+        else:
+            signal = 'Hold'
+        if signal != prev_signal:
+            signals.append(signal)
+            prev_signal = signal
+        else:
+            signals.append('')
+    return signals
+
+# Function to calculate MACD
+def calculate_macd(data, short_window=12, long_window=26, signal_window=9):
+    short_ema = data.ewm(span=short_window, min_periods=1, adjust=False).mean()
+    long_ema = data.ewm(span=long_window, min_periods=1, adjust=False).mean()
+    macd_line = short_ema - long_ema
+    signal_line = macd_line.ewm(span=signal_window, min_periods=1, adjust=False).mean()
+    return macd_line, signal_line
+
+
+# Function to generate buy/sell signals based on MACD
+def generate_macd_signals(macd_line, signal_line):
+    signals = []
+    prev_signal = None
+    for macd, signal in zip(macd_line, signal_line):
+        if macd > signal:
+            signal = 'Buy'
+        elif macd < signal:
+            signal = 'Sell'
+        else:
+            signal = 'Hold'
+        if signal != prev_signal:
+            signals.append(signal)
+            prev_signal = signal
+        else:
+            signals.append('')
+    return signals
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Streamlit app
+start = '2010-01-01'  # yyyy-mm-dd
+end = '2024-03-07'    # yyyy-mm-dd
+
+st.title('Stock Trend Prediction and RSI Analysis')
+user_input = st.text_input('Enter Stock Ticker', 'RELIANCE.NS')
+df = yf.download(user_input, start=start, end=end)
+
+# Describe data
+st.subheader('Data from 2010-2024')
+st.write(df.describe()) 
+highest_price = df['Close'].max()
+lowest_price = df['Close'].min()
+max_volume = df['Volume'].max()
+
+# Display statistics
+st.subheader('Specific Statistics')
+st.write(f'Highest Price: {highest_price}')
+st.write(f'Lowest Price: {lowest_price}')
+st.write(f'Maximum Volume: {max_volume}')
+
+# Visualizations
+st.subheader('Closing Price vs Time Chart')
+fig = plt.figure(figsize=(12, 6))
+plt.plot(df.Close)
+st.pyplot(fig)
+
+st.subheader('Closing Price vs Time Chart with 100MA')
+ma100 = df.Close.rolling(100).mean()
+fig = plt.figure(figsize=(12, 6))
+plt.plot(ma100)
+plt.plot(df.Close)
+st.pyplot(fig)
+
+st.subheader('Closing Price vs Time Chart with 200MA')
+ma100 = df.Close.rolling(100).mean()
+ma200 = df.Close.rolling(200).mean()
+fig = plt.figure(figsize=(12, 6))
+plt.plot(ma100 , 'r')
+plt.plot(ma200, 'g')
+plt.plot(df.Close,'b')
+st.pyplot(fig)
+
+st.subheader('Closing Price vs Time Chart with EMA(5,10,20)')
+ma5 = df['Close'].rolling(9).mean()
+ma10 = df['Close'].rolling(50).mean()
+ma20 = df['Close'].rolling(200).mean()
+
+fig = plt.figure(figsize=(12, 6))
+plt.plot(ma5 , 'r', label='EMA9')
+plt.plot(ma10, 'g', label='EMA50')
+plt.plot(ma20, 'b', label='EMA200')
+plt.plot(df['Close'], 'k', label='Closing Prices')
+plt.legend()
+plt.xlabel('Time')
+plt.ylabel('Price')
+st.pyplot(fig)
+
+# Split data into Training and Testing
+Data_training = pd.DataFrame(df['Close'][0:int(len(df) * 0.70)])
+Data_testing = pd.DataFrame(df['Close'][int(len(df) * 0.70): int(len(df))])
+
+print(Data_training.shape)
+print(Data_testing.shape)
+
+from sklearn.preprocessing import MinMaxScaler
+scaler = MinMaxScaler(feature_range=(0, 1))
+
+Data_training_array = scaler.fit_transform(Data_training)
+
+# Load model
+import streamlit as st
+from io import BytesIO
+import tensorflow as tf
+
+st.title('Model File Uploader')
+
+# File uploader for model selection
+model_file = st.file_uploader('Upload Model File (HDF5 format)', type=['h5'])
+
+if model_file is not None:
+    try:
+        # Save the uploaded file to a temporary location
+        with open('uploaded_model.h5', 'wb') as f:
+            f.write(model_file.getvalue())
+
+        # Load the model from the saved file
+        model = tf.keras.models.load_model('uploaded_model.h5')
+        st.success('Model loaded successfully!')
+
+        # Testing part
+        past_100_days = Data_training.tail(100)
+        final_df = pd.concat([past_100_days, Data_testing], ignore_index=True)
+        input_data = scaler.fit_transform(final_df)
+
+        x_test = []
+        y_test = []
+        for i in range(100, input_data.shape[0]):
+            x_test.append(input_data[i-100:i])
+            y_test.append(input_data[i, 0])
+
+        x_test, y_test = np.array(x_test), np.array(y_test)
+
+        y_predicated = model.predict(x_test)
+
+        scaler = scaler.scale_
+        scale_factor = 1 / scaler[0]
+        y_predicated = y_predicated * scale_factor
+        y_test = y_test * scale_factor
+
+        # Add RSI to DataFrame
+        df['RSI'] = calculate_rsi(df['Close'])
+
+        # Generate buy/sell signals based on RSI
+        df['Signal'] = generate_signals(df['RSI'])
+
+        # Plot predictions vs original prices
+        st.subheader('Predictions vs Original')
+        fig2 = plt.figure(figsize=(12, 6))
+        plt.plot(y_test, 'b', label='Original price')
+        plt.plot(y_predicated, 'r', label='Predicted price')
+        last_original_price = df.iloc[-1]['Close']
+        last_predicted_price = y_predicated[-1]
+        plt.xlabel('Time')
+        plt.ylabel('Price')
+        plt.legend()
+        st.pyplot(fig2)
+
+        # Display last predicted value and current price
+        st.subheader('Last Predicted Value and Current Price')
+        st.write(f"Last Predicted Value: {last_predicted_price}")
+        st.write(f"Current Price: {last_original_price}")
+
+        # Display RSI values
+        st.subheader('RSI Values')
+        st.line_chart(df['RSI'])
+
+        # Display Buy/Sell Signals
+        st.subheader('Buy/Sell Signals based on RSI')
+        buy_signals = df[df['Signal'] == 'Buy']
+        sell_signals = df[df['Signal'] == 'Sell']
+
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.plot(df.index, df['Close'], label='Close Price')
+        ax.scatter(buy_signals.index, buy_signals['Close'], marker='^', color='green', label='Buy Signal')
+        ax.scatter(sell_signals.index, sell_signals['Close'], marker='v', color='red', label='Sell Signal')
+        ax.set_title('Buy/Sell Signals based on RSI')
+        ax.set_xlabel('Date')
+        ax.set_ylabel('Price')
+        ax.legend()
+        st.pyplot(fig)
+
+        # Display dynamic buy/sell signal
+        latest_signal = df['Signal'].iloc[-1]
+        if latest_signal:
+            st.subheader('Latest Signal')
+            st.write(f"The latest signal is: {latest_signal}")
+
+    except Exception as e:
+        st.error(f'Error loading the model: {e}')
+
+else:
+    st.warning("Please upload a model file first.")
+
+#MACD
+import numpy as np
+import pandas as pd 
+import matplotlib.pyplot as plt
+import yfinance as yf
+from ta.trend import MACD
+import streamlit as st
+
+
+# Function to fetch real-time stock data
+def fetch_realtime_data(ticker):
+    stock_data = yf.download(ticker)
+    return stock_data
+
+# Function to calculate MACD and generate signals
+def calculate_macd(data):
+    macd = MACD(data['Close'])
+    data['MACD'] = macd.macd()
+    data['Signal Line'] = macd.macd_signal()
+    data['MACD Histogram'] = macd.macd_diff()
+    data['Signal'] = np.where(data['MACD'] > data['Signal Line'], 'Buy', 'Sell')
+    return data
+
+# Streamlit app
+st.title('Real-time MACD Signal Generator')
+
+data = fetch_realtime_data(user_input)
+
+if not data.empty:
+    data_with_macd = calculate_macd(data)
+
+    # Display latest MACD signal
+    latest_signal = data_with_macd['Signal'].iloc[-1]
+    st.subheader('Latest MACD Signal')
+    st.write(f"The latest MACD signal is: {latest_signal}")
+
+    # Plot MACD and Signal Line
+    st.subheader('MACD and Signal Line')
+    fig, ax = plt.subplots(figsize=(12, 6))
+    ax.plot(data_with_macd.index, data_with_macd['MACD'], label='MACD')
+    ax.plot(data_with_macd.index, data_with_macd['Signal Line'], label='Signal Line')
+    ax.fill_between(data_with_macd.index, data_with_macd['MACD Histogram'], color='gray', alpha=0.5, label='MACD Histogram')
+    ax.set_xlabel('Date')
+    ax.set_ylabel('MACD')
+    ax.legend()
+    st.pyplot(fig)
+else:
+    st.error('No real-time stock data available. Please check your input or try again later.')
+
+
+
+
+# Function to calculate EMA
+def calculate_ema(data, windows):
+    emas = {}
+    for window in windows:
+        emas[f'EMA_{window}'] = data.ewm(span=window, adjust=False).mean()
+    return emas
+
+
+
+st.title('Stock Trend Prediction and EMA Analysis')
+
+# EMA Inputs
+ema1_window = st.slider('Select EMA 1 Window Size', min_value=5, max_value=50, value=20, step=5)
+ema2_window = st.slider('Select EMA 2 Window Size', min_value=5, max_value=50, value=50, step=5)
+ema3_window = st.slider('Select EMA 3 Window Size', min_value=5, max_value=50, value=200, step=5)
+
+# Calculate EMAs
+ema_windows = [ema1_window, ema2_window, ema3_window]
+emas = calculate_ema(df['Close'], ema_windows)
+
+# Plot EMAs
+st.subheader('EMA vs Closing Price')
+fig = plt.figure(figsize=(12, 6))
+plt.plot(df.Close, label='Closing Price')
+for ema_label, ema_data in emas.items():
+    plt.plot(ema_data, label=ema_label)
+plt.legend()
+st.pyplot(fig)
+
+# Determine EMA directions
+ema_directions = {ema_label: 'Upward' if ema_data.iloc[-1] > ema_data.iloc[-2] else 'Downward' for ema_label, ema_data in emas.items()}
+st.subheader('EMA Directions')
+for ema_label, ema_direction in ema_directions.items():
+    st.write(f"The direction of {ema_label} is: {ema_direction}")
+
+
+# Historical 
+st.title('Historical Revenue and Earnings')
+
+# Get user input for stock ticker
+#user_input = st.text_input('Enter Stock Ticker', 'AAPL')
+
+# Input for start date and end date
+start_date = st.date_input('Start Date')
+end_date = st.date_input('End Date')
+
+# Option selector for frequency
+frequency_option = st.selectbox('Select Frequency', ['Quarterly', 'Annual'])
+
+if start_date < end_date:
+    # Fetch historical stock data
+    stock_data = yf.download(user_input, start=start_date, end=end_date)
+
+    if not stock_data.empty:
+        if frequency_option == 'Quarterly':
+            # Resample data to quarterly frequency
+            resampled_data = stock_data.resample('Q').mean()
+        elif frequency_option == 'Annual':
+            # Resample data to annual frequency
+            resampled_data = stock_data.resample('Y').mean()
+
+        # Calculate Revenue and Earnings in INR
+        usd_to_inr_rate = 75.0  # Example rate, you should use the actual current rate
+        inr_to_crores = 1e-7  # Conversion factor from INR to crores
+        resampled_data['Revenue_INR'] = resampled_data['Close'] * 1000000 * usd_to_inr_rate * inr_to_crores
+        resampled_data['Earnings_INR'] = resampled_data['Revenue_INR'] * 0.1  # Assuming earnings as 10% of revenue
+
+        # Plotting
+        plt.figure(figsize=(12, 8))
+
+        bar_width = 0.35
+        index = range(len(resampled_data))
+
+        plt.bar(index, resampled_data['Revenue_INR'], bar_width, label='Revenue (INR Crores)', color='green')
+        plt.bar([i + bar_width for i in index], resampled_data['Earnings_INR'], bar_width, label='Earnings (INR Crores)', color='blue')
+
+        if frequency_option == 'Quarterly':
+            plt.xticks(index, [group.strftime('%Y-%m') for group in resampled_data.index])
+        elif frequency_option == 'Annual':
+            plt.xticks(index, [group.strftime('%Y') for group in resampled_data.index])
+
+        plt.title('Historical Revenue and Earnings (INR Crores)')
+        plt.xlabel('Date')
+        plt.ylabel('Value (INR Crores)')
+        plt.legend()
+        plt.xticks(rotation=45)  # Rotate x-axis labels for better readability
+        st.pyplot(plt)
+    else:
+        st.error("No historical stock data available for the specified time frame.")
+else:
+    st.error("End date should be greater than start date.")
+# intrinsic  value
+
+# Function to fetch historical stock data
+def fetch_stock_data(ticker, start_date, end_date):
+    stock_data = yf.download(ticker, start=start_date, end=end_date)
+    return stock_data
+
+# Function to calculate intrinsic value using DCF method
+def calculate_intrinsic_value(stock_data, discount_rate, terminal_growth_rate):
+    last_close_price = stock_data['Close'].iloc[-1]
+    projected_cash_flows = [last_close_price * (1 + terminal_growth_rate) ** i for i in range(1, 6)]
+    present_value = sum([cf / (1 + discount_rate) ** (i + 1) for i, cf in enumerate(projected_cash_flows)])
+    terminal_value = projected_cash_flows[-1] / (discount_rate - terminal_growth_rate)
+    intrinsic_value = present_value + terminal_value / (1 + discount_rate) ** 5
+    return intrinsic_value
+
+# Streamlit app
+st.title('Stock Intrinsic Value Calculator')
+
+# User inputs
+ticker = st.text_input('Enter Stock Ticker Symbol')
+start_date = st.date_input('Enter Start Date')
+end_date = st.date_input('Enter End Date')
+discount_rate = st.number_input('Enter Discount Rate', value=0.1, step=0.01)
+terminal_growth_rate = st.number_input('Enter Terminal Growth Rate', value=0.03, step=0.01)
+
+# Fetch stock data
+if ticker and start_date and end_date:
+    stock_data = fetch_stock_data(ticker, start_date, end_date)
+    if not stock_data.empty:
+        st.subheader('Historical Stock Data')
+        st.write(stock_data)
+
+        # Calculate intrinsic value
+        intrinsic_value = calculate_intrinsic_value(stock_data, discount_rate, terminal_growth_rate)
+        st.subheader('Intrinsic Value')
+        st.write(f'The intrinsic value of the share is: {intrinsic_value:.2f}')
+    else:
+        st.error('No historical stock data available for the specified time frame.')
+
+
+
+      
